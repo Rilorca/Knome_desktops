@@ -1,0 +1,17 @@
+{
+    "KPackageStructure": "KWin/Effect",
+    "KPlugin": {
+        "Authors": [{ "Name": "Knome" }],
+        "Category": "Window Management",
+        "Description": "GNOME 50/51 style overview: bigger workspace strip, fly-in window animation",
+        "EnabledByDefault": false,
+        "Id": "gnomeoverview",
+        "License": "GPL-2.0-or-later",
+        "Name": "GNOME Overview",
+        "Version": "0.1.0"
+    },
+    "X-KWin-Border-Activate": true,
+    "X-KDE-ConfigModule": "kcm_kwin4_genericscripted",
+    "X-Plasma-API": "declarativescript",
+    "X-KDE-PluginKeyword": "gnomeoverview"
+}
