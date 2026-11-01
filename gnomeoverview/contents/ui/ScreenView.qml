@@ -23,6 +23,8 @@ FocusScope {
 
     readonly property var effect: KWinComponents.SceneView.effect
     readonly property KWinComponents.Output targetScreen: KWinComponents.SceneView.screen
+    readonly property bool desktopsOnlyOnPrimary: (effect.configuration && effect.configuration.DesktopsOnlyOnPrimary !== undefined) ? effect.configuration.DesktopsOnlyOnPrimary : true
+    readonly property bool isPrimaryScreen: !desktopsOnlyOnPrimary || (KWinComponents.Workspace.screenOrder.length > 0 && KWinComponents.Workspace.screenOrder[0].name === targetScreen.name)
 
     readonly property bool lightBackground: Math.max(Kirigami.Theme.backgroundColor.r,
                                                      Kirigami.Theme.backgroundColor.g,
@@ -133,6 +135,26 @@ FocusScope {
             }
         }
         return 0;
+    }
+
+    function stepDesktop(direction) {
+        const count = allDesktopHeaps.count;
+        if (count < 2) {
+            return;
+        }
+        const currentIndex = currentDesktopIndex();
+        let targetIndex = currentIndex + direction;
+        if (KWinComponents.Workspace.virtualDesktopNavigationWrapsAround) {
+            targetIndex = (targetIndex % count + count) % count;
+        } else {
+            targetIndex = Math.max(0, Math.min(count - 1, targetIndex));
+        }
+        if (targetIndex !== currentIndex && targetIndex >= 0 && targetIndex < count) {
+            const item = allDesktopHeaps.itemAt(targetIndex);
+            if (item && item.desktop) {
+                KWinComponents.Workspace.currentDesktop = item.desktop;
+            }
+        }
     }
 
     function switchTo(desktop) {
@@ -261,34 +283,63 @@ FocusScope {
     Keys.priority: Keys.AfterItem
     Keys.forwardTo: [allDesktopHeaps.currentHeap, searchField, searchResults]
 
+    MouseArea {
+        id: overviewWheelArea
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.NoButton
+        enabled: container.isPrimaryScreen
+        property real accumulatedDelta: 0
+
+        onWheel: (wheel) => {
+            if (!container.isPrimaryScreen) return;
+            const yDelta = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y;
+            const xDelta = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.pixelDelta.x;
+            const effectiveDelta = yDelta !== 0 ? yDelta : -xDelta;
+            if (effectiveDelta === 0) {
+                return;
+            }
+
+            accumulatedDelta += (wheel.inverted ? -1 : 1) * effectiveDelta;
+            if (accumulatedDelta <= -120) {
+                accumulatedDelta = 0;
+                container.stepDesktop(1);
+                wheel.accepted = true;
+            } else if (accumulatedDelta >= 120) {
+                accumulatedDelta = 0;
+                container.stepDesktop(-1);
+                wheel.accepted = true;
+            }
+        }
+    }
+
     WheelHandler {
-        property int wheelDelta: 0
-        acceptedDevices: PointerDevice.Mouse
+        id: overviewWheelHandler
+        target: null
+        enabled: container.isPrimaryScreen
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        acceptedModifiers: Qt.NoModifier | Qt.MetaModifier | Qt.AltModifier | Qt.ControlModifier | Qt.ShiftModifier
+        property real accumulatedDelta: 0
 
         onWheel: (event) => {
-            const delta = (event.inverted ? -1 : 1) * (event.angleDelta.y ? event.angleDelta.y : -event.angleDelta.x);
-            wheelDelta += delta;
+            if (!container.isPrimaryScreen) return;
+            const yDelta = event.angleDelta.y !== 0 ? event.angleDelta.y : event.pixelDelta.y;
+            const xDelta = event.angleDelta.x !== 0 ? event.angleDelta.x : event.pixelDelta.x;
+            const effectiveDelta = yDelta !== 0 ? yDelta : -xDelta;
+            if (effectiveDelta === 0) {
+                return;
+            }
 
-            let currentIndex = container.currentDesktopIndex();
-            // Magic number 120 for common "one click"
-            // See: https://qt-project.org/doc/qt-5/qml-qtquick-wheelevent.html#angleDelta-prop
-            while (wheelDelta >= 120) {
-                wheelDelta -= 120;
-                if (KWinComponents.Workspace.virtualDesktopNavigationWrapsAround) {
-                    currentIndex = (currentIndex - 1 + allDesktopHeaps.count) % allDesktopHeaps.count;
-                } else {
-                    currentIndex = Math.max(0, currentIndex - 1);
-                }
+            accumulatedDelta += (event.inverted ? -1 : 1) * effectiveDelta;
+            if (accumulatedDelta <= -120) {
+                accumulatedDelta = 0;
+                container.stepDesktop(1);
+                event.accepted = true;
+            } else if (accumulatedDelta >= 120) {
+                accumulatedDelta = 0;
+                container.stepDesktop(-1);
+                event.accepted = true;
             }
-            while (wheelDelta <= -120) {
-                wheelDelta += 120;
-                if (KWinComponents.Workspace.virtualDesktopNavigationWrapsAround) {
-                    currentIndex = (currentIndex + 1) % allDesktopHeaps.count;
-                } else {
-                    currentIndex = Math.min(allDesktopHeaps.count - 1, currentIndex + 1);
-                }
-            }
-            KWinComponents.Workspace.currentDesktop = allDesktopHeaps.itemAt(currentIndex).desktop;
         }
     }
 
@@ -322,6 +373,7 @@ FocusScope {
 
     Item {
         id: desktopBar
+        visible: container.isPrimaryScreen
 
         // (overviewVal, gridVal) represents the state of the overview
         // in a 2D coordinate plane. Math.atan2 returns the angle between
@@ -354,6 +406,7 @@ FocusScope {
 
     Item {
         id: topBar
+        visible: container.isPrimaryScreen
         opacity: desktopBar.opacity
         anchors.left: container.verticalDesktopBar ? desktopBar.right : parent.left
         anchors.right: parent.right
@@ -404,8 +457,8 @@ FocusScope {
     property var currentGeometry: targetScreen.geometry
 
     // These are the minimum position of maximum size of the desktop preview in the overview
-    property int minX: Kirigami.Units.largeSpacing + (container.verticalDesktopBar ? desktopBar.width : 0)
-    property int minY: Kirigami.Units.largeSpacing + topBar.height + (container.verticalDesktopBar ? 0 : desktopBar.height)
+    property int minX: Kirigami.Units.largeSpacing + (container.verticalDesktopBar && desktopBar.visible ? desktopBar.width : 0)
+    property int minY: Kirigami.Units.largeSpacing + (topBar.visible ? (topBar.height + (container.verticalDesktopBar || !desktopBar.visible ? 0 : desktopBar.height)) : 0)
     property int maxWidth: currentGeometry.width - minX - Kirigami.Units.gridUnit * 2
     property int maxHeight: currentGeometry.height - minY - Kirigami.Units.gridUnit * 2
 
@@ -478,9 +531,9 @@ FocusScope {
                 id: mainBackground
 
                 // visible when in the overview 'grid' mode, but also keep neighbouring items visible as they can appear during gestures
-                visible: gridVal > 0 || nearCurrent
+                visible: container.isPrimaryScreen ? (gridVal > 0 || nearCurrent) : current
                 // Avoid handling drops for offscreen visible items
-                enabled: gridVal > 0 || current
+                enabled: container.isPrimaryScreen ? (gridVal > 0 || current) : current
 
                 anchors.fill: parent
                 property bool shouldBeVisibleInOverview: !(effect.searchText.length > 0 && current) || (heap.count !== 0 && effect.filterWindows)
@@ -515,21 +568,21 @@ FocusScope {
                                            targetScreenDesktopOffset.y)
                 // deltaColumn and deltaRows are the difference between the column/row of this desktop
                 // compared to the column/row of the active one
-                property real deltaColumn: column - allDesktopHeaps.currentBackgroundItem.column - deltaX
-                property real deltaRow: row - allDesktopHeaps.currentBackgroundItem.row - deltaY
+                property real deltaColumn: container.isPrimaryScreen ? (column - allDesktopHeaps.currentBackgroundItem.column - deltaX) : 0
+                property real deltaRow: container.isPrimaryScreen ? (row - allDesktopHeaps.currentBackgroundItem.row - deltaY) : 0
 
                 onDeltaColumnChanged: heap.layout.updateCellsMapping()
                 onDeltaRowChanged: heap.layout.updateCellsMapping()
 
                 Behavior on deltaColumn {
-                    enabled: overviewVal > 0 && !container.desktopJustCreated
+                    enabled: container.isPrimaryScreen && overviewVal > 0 && !container.desktopJustCreated
                     NumberAnimation {
                         duration: effect.animationDuration
                         easing.type: Easing.OutQuint
                     }
                 }
                 Behavior on deltaRow {
-                    enabled: overviewVal > 0 && !container.desktopJustCreated
+                    enabled: container.isPrimaryScreen && overviewVal > 0 && !container.desktopJustCreated
                     NumberAnimation {
                         duration: effect.animationDuration
                         easing.type: Easing.OutQuint
@@ -585,7 +638,7 @@ FocusScope {
                         anchors.fill: parent
                         anchors.margins: gridVal !== 0 ? Math.round(mainBackground.current * gridVal * (1.5 / gridScale.xScale)) : 0
                         activity: KWinComponents.Workspace.currentActivity
-                        desktop: currentDesktop
+                        desktop: mainBackground.desktop
                         outputName: targetScreen.name
                         visible: false
                     }

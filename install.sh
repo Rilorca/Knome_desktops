@@ -14,22 +14,34 @@ cp -r "$SCRIPT_DIR/gnomeoverview" "$EFFECTS_DIR/"
 # Asignar tecla Meta a GNOME Overview en kglobalshortcutsrc
 echo "==> Configurando tecla Meta (Super) para GNOME Overview..."
 python3 -c '
-path = "/home/rodrigo/.config/kglobalshortcutsrc"
-with open(path, "r") as f:
-    lines = f.readlines()
+import os
+path = os.path.expanduser("~/.config/kglobalshortcutsrc")
+if os.path.exists(path):
+    with open(path, "r") as f:
+        lines = f.readlines()
 
-new_lines = []
-for line in lines:
-    if line.startswith("Overview="):
-        new_lines.append("Overview=none,none,Conmutar a la vista general\n")
-    elif line.startswith("GNOME Overview="):
-        new_lines.append("GNOME Overview=Meta\\tMeta+W,none,Toggle GNOME Overview\n")
-    else:
-        new_lines.append(line)
+    new_lines = []
+    has_gnome_overview = False
+    for line in lines:
+        if line.startswith("Overview="):
+            new_lines.append("Overview=none,none,Conmutar a la vista general\\n")
+        elif line.startswith("GNOME Overview="):
+            new_lines.append("GNOME Overview=Meta\\tMeta+W,none,Toggle GNOME Overview\\n")
+            has_gnome_overview = True
+        else:
+            new_lines.append(line)
 
-with open(path, "w") as f:
-    f.writelines(new_lines)
+    if not has_gnome_overview:
+        new_lines.append("GNOME Overview=Meta\\tMeta+W,none,Toggle GNOME Overview\\n")
+
+    with open(path, "w") as f:
+        f.writelines(new_lines)
 '
+
+# Habilitar script oficial de KWin para escritorios virtuales solo en pantalla principal por defecto
+echo "==> Configurando escritorios virtuales solo en pantalla principal por defecto..."
+(flatpak-spawn --host kwriteconfig6 --file kwinrc --group Plugins --key virtualdesktopsonlyonprimaryEnabled "true" || kwriteconfig6 --file kwinrc --group Plugins --key virtualdesktopsonlyonprimaryEnabled "true") 2>/dev/null || true
+(flatpak-spawn --host kwriteconfig6 --file kwinrc --group Effect-gnomeoverview --key DesktopsOnlyOnPrimary "true" || kwriteconfig6 --file kwinrc --group Effect-gnomeoverview --key DesktopsOnlyOnPrimary "true") 2>/dev/null || true
 
 # Configurar servicio gnome-meta-scroll (Meta + rueda en cualquier lugar)
 echo "==> Configurando servicio gnome-meta-scroll (Meta + rueda en cualquier lugar)..."

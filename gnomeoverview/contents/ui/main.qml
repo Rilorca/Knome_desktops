@@ -8,6 +8,7 @@ KWinComponents.SceneEffect {
 
     property bool activated: false
     readonly property int animationDuration: effect.configuration.Duration
+    readonly property bool desktopsOnlyOnPrimary: effect.configuration.DesktopsOnlyOnPrimary !== undefined ? effect.configuration.DesktopsOnlyOnPrimary : true
 
     // ---- shim of OverviewEffect's C++ API used by ScreenView/DesktopBar ----
     property string searchText: ""

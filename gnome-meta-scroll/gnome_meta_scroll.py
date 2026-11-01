@@ -11,10 +11,17 @@ class MetaScrollManager:
     def __init__(self, debounce_interval=0.18, dbus_interface=None):
         self.debounce_interval = debounce_interval
         self.last_trigger_time = 0.0
-        self.meta_pressed = False
+        self.pressed_keys = set()
         self.dbus_interface = dbus_interface
         if self.dbus_interface is None:
             self._init_dbus()
+
+    @property
+    def meta_pressed(self):
+        return len(self.pressed_keys) > 0
+
+    def release_device_keys(self, device_path):
+        self.pressed_keys = {k for k in self.pressed_keys if k[0] != device_path}
 
     def _init_dbus(self):
         try:
@@ -42,12 +49,19 @@ class MetaScrollManager:
             self._init_dbus()
         return False
 
-    def handle_event(self, event):
+    def handle_event(self, event, device_path="default"):
         if event.type == ecodes.EV_KEY:
             if event.code in (ecodes.KEY_LEFTMETA, ecodes.KEY_RIGHTMETA):
-                self.meta_pressed = (event.value > 0)
+                if event.value > 0:
+                    self.pressed_keys.add((device_path, event.code))
+                else:
+                    self.pressed_keys.discard((device_path, event.code))
         elif event.type == ecodes.EV_REL and self.meta_pressed:
+            # Handle standard wheel as well as high-resolution wheel
+            # In high-res wheel, one notch is typically ±120
             if event.code == ecodes.REL_WHEEL and event.value != 0:
+                return self.trigger_switch(event.value)
+            elif hasattr(ecodes, "REL_WHEEL_HI_RES") and event.code == ecodes.REL_WHEEL_HI_RES and event.value != 0:
                 return self.trigger_switch(event.value)
         return False
 
@@ -59,7 +73,10 @@ def is_candidate_device(dev):
             ecodes.KEY_LEFTMETA in caps[ecodes.EV_KEY] or ecodes.KEY_RIGHTMETA in caps[ecodes.EV_KEY]
         )
         has_wheel = ecodes.EV_REL in caps and (
-            ecodes.REL_WHEEL in caps[ecodes.EV_REL] or ecodes.REL_HWHEEL in caps[ecodes.EV_REL]
+            ecodes.REL_WHEEL in caps[ecodes.EV_REL]
+            or (hasattr(ecodes, "REL_WHEEL_HI_RES") and ecodes.REL_WHEEL_HI_RES in caps[ecodes.EV_REL])
+            or ecodes.REL_HWHEEL in caps[ecodes.EV_REL]
+            or (hasattr(ecodes, "REL_HWHEEL_HI_RES") and ecodes.REL_HWHEEL_HI_RES in caps[ecodes.EV_REL])
         )
         return has_meta or has_wheel
     except Exception:
@@ -69,9 +86,11 @@ def is_candidate_device(dev):
 async def handle_device(dev, manager):
     try:
         async for event in dev.async_read_loop():
-            manager.handle_event(event)
+            manager.handle_event(event, dev.path)
     except Exception:
         pass
+    finally:
+        manager.release_device_keys(dev.path)
 
 
 async def monitor_hotplug(tasks, manager):
