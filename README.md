@@ -87,3 +87,4 @@ pytest -v tests
 ## 📄 Licencia
 
 GPLv2 o posterior.
+
